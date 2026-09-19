@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RAG 评测打分</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: #f4f5f7;
+    color: #1f2328;
+    line-height: 1.6;
+  }
+  header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: #fff;
+    border-bottom: 1px solid #e2e5ea;
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  header h1 { font-size: 16px; margin: 0; }
+  .progress-wrap { flex: 1; min-width: 200px; display: flex; align-items: center; gap: 10px; }
+  .bar { flex: 1; height: 8px; background: #e6e8ec; border-radius: 999px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0; background: #3b6ef5; transition: width .2s; }
+  .progress-text { font-size: 13px; color: #555; white-space: nowrap; }
+  button {
+    font: inherit;
+    cursor: pointer;
+    border: 1px solid #cfd3da;
+    background: #fff;
+    border-radius: 8px;
+    padding: 6px 12px;
+  }
+  button:hover { background: #f0f2f5; }
+  button.primary { background: #3b6ef5; color: #fff; border-color: #3b6ef5; }
+  button.primary:disabled { opacity: .5; cursor: not-allowed; }
+  main { max-width: 1200px; margin: 0 auto; padding: 20px; }
+  .loader {
+    background: #fff; border: 1px dashed #cfd3da; border-radius: 12px;
+    padding: 40px; text-align: center; color: #555;
+  }
+  .card {
+    background: #fff;
+    border: 1px solid #e2e5ea;
+    border-radius: 12px;
+    padding: 16px 18px;
+    margin-bottom: 18px;
+  }
+  .card.done { border-color: #9bc7a0; }
+  .q-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; flex-wrap: wrap; }
+  .q-id { font-weight: 700; }
+  .tag { font-size: 12px; padding: 1px 8px; border-radius: 999px; font-weight: 600; }
+  .tag.semantic { background: #e3f0ff; color: #1c5fd0; }
+  .tag.entity   { background: #e6f7ec; color: #1e8a4c; }
+  .tag.hybrid   { background: #f3e8ff; color: #7c3aed; }
+  .q-text { font-weight: 600; margin-bottom: 14px; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 800px) { .cols { grid-template-columns: 1fr; } }
+  .col h3 {
+    margin: 0 0 8px; font-size: 13px; color: #555; font-weight: 600;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .dot.v { background: #1c5fd0; }
+  .dot.g { background: #7c3aed; }
+  .answer {
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: #f7f8fa;
+    border: 1px solid #eceef1;
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 13.5px;
+    max-height: 360px;
+    overflow-y: auto;
+  }
+  .score-row { margin-top: 10px; display: flex; gap: 8px; align-items: center; }
+  .score-row .label { font-size: 12px; color: #888; margin-right: 2px; }
+  .score-btn.sel { background: #1e8a4c; color: #fff; border-color: #1e8a4c; }
+  footer { text-align: center; color: #999; font-size: 12px; padding: 30px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>RAG 评测打分</h1>
+  <div class="progress-wrap">
+    <div class="bar"><i id="barFill"></i></div>
+    <span class="progress-text" id="progressText">未加载</span>
+  </div>
+  <label class="fileBtn">
+    <input type="file" id="fileInput" accept=".json,application/json" hidden>
+    <button type="button" onclick="document.getElementById('fileInput').click()">加载 JSON</button>
+  </label>
+  <button type="button" class="primary" id="exportBtn" disabled>导出打分结果</button>
+</header>
+
+<main>
+  <div class="loader" id="loader">
+    选择 <code>eval_results.json</code> 开始打分。<br>
+    进度会自动存到浏览器本地，刷新不丢；重新加载同名文件会尝试恢复已打的分。
+  </div>
+  <div id="list"></div>
+</main>
+
+<footer>纯前端 · 打分标准：1 分 = 正确且有帮助，0.5 分 = 部分正确 / 有瑕疵，0 分 = 错误或答非所问</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  var STORAGE_KEY = "rag_eval_scores_v1";
+  var SCORES = [1, 0.5, 0];
+  var data = null;
+
+  var loader = document.getElementById("loader");
+  var listEl = document.getElementById("list");
+  var barFill = document.getElementById("barFill");
+  var progressText = document.getElementById("progressText");
+  var exportBtn = document.getElementById("exportBtn");
+  var fileInput = document.getElementById("fileInput");
+
+  function loadStore() {
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; }
+    catch (e) { return {}; }
+  }
+  function saveStore(store) {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(store)); }
+    catch (e) { /* 隐私模式等，忽略 */ }
+  }
+
+  function scoreKey(id, side) { return id + ":" + side; }
+
+  function getScore(id, side) {
+    var store = loadStore();
+    var v = store[scoreKey(id, side)];
+    return (v === undefined) ? null : v;
+  }
+  function setScore(id, side, value) {
+    var store = loadStore();
+    store[scoreKey(id, side)] = value;
+    saveStore(store);
+  }
+
+  function isDone(item) {
+    return getScore(item.id, "v") !== null && getScore(item.id, "g") !== null;
+  }
+
+  function refreshProgress() {
+    if (!data) return;
+    var done = data.filter(isDone).length;
+    var total = data.length;
+    var pct = total ? Math.round((done / total) * 100) : 0;
+    barFill.style.width = pct + "%";
+    progressText.textContent = "已打分 " + done + " / " + total + " 题";
+    exportBtn.disabled = (done === 0);
+  }
+
+  function makeScoreRow(item, side) {
+    var row = document.createElement("div");
+    row.className = "score-row";
+
+    var label = document.createElement("span");
+    label.className = "label";
+    label.textContent = "打分:";
+    row.appendChild(label);
+
+    var current = getScore(item.id, side);
+    SCORES.forEach(function (s) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "score-btn" + (current === s ? " sel" : "");
+      b.textContent = (s === 0.5 ? "0.5" : s) + " 分";
+      b.addEventListener("click", function () {
+        setScore(item.id, side, s);
+        // 更新同一排按钮高亮
+        Array.prototype.forEach.call(row.querySelectorAll(".score-btn"), function (x) {
+          x.classList.remove("sel");
+        });
+        b.classList.add("sel");
+        var card = row.closest(".card");
+        if (card) card.classList.toggle("done", isDone(item));
+        refreshProgress();
+      });
+      row.appendChild(b);
+    });
+    return row;
+  }
+
+  function makeColumn(item, side, title, dotClass, answer) {
+    var col = document.createElement("div");
+    col.className = "col";
+
+    var h = document.createElement("h3");
+    h.innerHTML = '<span class="dot ' + dotClass + '"></span>' + title;
+    col.appendChild(h);
+
+    var a = document.createElement("div");
+    a.className = "answer";
+    a.textContent = answer || "(无内容)";
+    col.appendChild(a);
+
+    col.appendChild(makeScoreRow(item, side));
+    return col;
+  }
+
+  function render() {
+    listEl.innerHTML = "";
+    data.forEach(function (item) {
+      var card = document.createElement("div");
+      card.className = "card" + (isDone(item) ? " done" : "");
+
+      var head = document.createElement("div");
+      head.className = "q-head";
+      head.innerHTML =
+        '<span class="q-id">#' + item.id + '</span>' +
+        '<span class="tag ' + item.type + '">' + item.type + '</span>';
+      card.appendChild(head);
+
+      var qt = document.createElement("div");
+      qt.className = "q-text";
+      qt.textContent = item.question;
+      card.appendChild(qt);
+
+      var cols = document.createElement("div");
+      cols.className = "cols";
+      cols.appendChild(makeColumn(item, "v", "纯向量 RAG", "v", item.vector_only_answer));
+      cols.appendChild(makeColumn(item, "g", "图谱增强 RAG", "g", item.graph_enhanced_answer));
+      card.appendChild(cols);
+
+      listEl.appendChild(card);
+    });
+    refreshProgress();
+  }
+
+  function handleFile(file) {
+    var reader = new FileReader();
+    reader.onload = function (e) {
+      var parsed;
+      try {
+        parsed = JSON.parse(e.target.result);
+      } catch (err) {
+        alert("JSON 解析失败：" + err.message);
+        return;
+      }
+      if (!Array.isArray(parsed)) {
+        alert("文件格式不对，应为数组");
+        return;
+      }
+      data = parsed;
+
+      // 如果文件里已有分数，且本地没记录，则把文件里的分数导入本地
+      var store = loadStore();
+      data.forEach(function (item) {
+        if (item.vector_only_score != null && store[scoreKey(item.id, "v")] === undefined) {
+          store[scoreKey(item.id, "v")] = item.vector_only_score;
+        }
+        if (item.graph_enhanced_score != null && store[scoreKey(item.id, "g")] === undefined) {
+          store[scoreKey(item.id, "g")] = item.graph_enhanced_score;
+        }
+      });
+      saveStore(store);
+
+      loader.style.display = "none";
+      render();
+    };
+    reader.onerror = function () { alert("读取文件失败"); };
+    reader.readAsText(file, "utf-8");
+  }
+
+  fileInput.addEventListener("change", function () {
+    if (this.files && this.files[0]) handleFile(this.files[0]);
+  });
+
+  exportBtn.addEventListener("click", function () {
+    if (!data) return;
+    var out = data.map(function (item) {
+      var copy = {};
+      Object.keys(item).forEach(function (k) { copy[k] = item[k]; });
+      copy.vector_only_score = getScore(item.id, "v");
+      copy.graph_enhanced_score = getScore(item.id, "g");
+      return copy;
+    });
+    var blob = new Blob([JSON.stringify(out, null, 2)], { type: "application/json" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = "eval_results_scored.json";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  });
+})();
+</script>
+</body>
+</html>

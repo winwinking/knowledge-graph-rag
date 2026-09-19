@@ -1,0 +1,57 @@
+# ---- 前端：只要 frontend/dist，源码和依赖都不进镜像 ----
+frontend/node_modules
+frontend/src
+frontend/public
+frontend/index.html
+frontend/package.json
+frontend/package-lock.json
+frontend/vite.config.js
+frontend/eslint.config.js
+frontend/.vite
+frontend/.gitignore
+frontend/README.md
+
+# ---- Python ----
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+mcp_venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---- 版本控制 / IDE ----
+.git/
+.gitignore
+.idea/
+.vscode/
+
+# ---- 运行时产物 / 日志（compose 用 volume 挂载，不打进镜像）----
+*.log
+chat_history/
+_uvicorn*.log
+_t.*.log
+frontend.out.log
+frontend.err.log
+
+# ---- 本地启动器 / 打包图标（容器用不到）----
+start_app.bat
+start_app.ps1
+app_icon.ico
+app_icon.png
+
+# ---- 评测脚本（开发用）----
+eval/
+
+# ---- 文档 / Docker 自身 ----
+*.md
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+# ---- 旧的 Flask 版遗留 & 未使用模块 ----
+retriever.py

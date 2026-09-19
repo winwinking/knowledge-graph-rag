@@ -1,0 +1,31 @@
+# 知识图谱 RAG —— 运行期依赖（app.py / workflow.py / kb_store.py / chat_store.py）
+# 版本对齐当前开发环境（Python 3.9）。间接依赖（openai / httpx / transformers /
+# numpy / scikit-learn / huggingface-hub 等）交给 pip 自动解析。
+#
+# torch 走 CPU 版轮子，见 Dockerfile 里单独的 --index-url；这里只钉版本。
+
+# --- Web 框架 ---
+fastapi==0.128.8
+uvicorn==0.39.0
+python-multipart==0.0.20
+pydantic==2.13.4
+
+# --- 查询缓存 ---
+redis==7.0.1
+
+# --- LangGraph / LangChain ---
+langgraph==0.6.11
+langchain==0.3.30
+langchain-core==0.3.86
+langchain-community==0.3.31
+langchain-openai==0.3.35
+langchain-text-splitters==0.3.11
+langchain-huggingface==0.3.1
+
+# --- 向量检索 + embedding ---
+faiss-cpu==1.13.0
+sentence-transformers==5.1.2
+torch==2.8.0
+
+# --- PDF 解析 ---
+pypdf==6.16.2

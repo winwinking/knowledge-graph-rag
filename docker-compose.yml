@@ -1,0 +1,33 @@
+services:
+  app:
+    build: .
+    ports:
+      - "5001:5001"
+    environment:
+      # 走 compose 内部网络，用服务名访问 redis
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      # 知识库 / 聊天历史 / 上传的原始文件持久化到宿主机，
+      # docker-compose down 之后数据还在
+      - ./knowledge_bases:/app/knowledge_bases
+      - ./chat_history:/app/chat_history
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  redis-data:

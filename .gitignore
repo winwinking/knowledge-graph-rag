@@ -1,0 +1,37 @@
+# 环境变量 / 密钥
+.env
+
+# Python
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+mcp_venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# 前端（frontend/dist 不忽略：Docker 镜像直接用仓库里现成的 dist，见 README）
+frontend/node_modules/
+
+# 运行时产物 / 数据 / 日志
+knowledge_bases/
+chat_history/
+*.db
+*.log
+_uvicorn*.log
+_t.*.log
+frontend.out.log
+frontend.err.log
+
+# 旧的扁平产物（已迁移进 knowledge_bases/）
+faiss_index/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

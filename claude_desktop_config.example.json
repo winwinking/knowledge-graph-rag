@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "knowledge-graph-rag": {
+      "command": "E:\\ailearning\\LightRAG\\knowledge-graph-rag\\mcp_venv\\Scripts\\python.exe",
+      "args": ["E:\\ailearning\\LightRAG\\knowledge-graph-rag\\mcp_server.py"]
+    }
+  }
+}

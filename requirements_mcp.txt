@@ -1,0 +1,19 @@
+# MCP server（mcp_server.py）专用依赖 —— 只给 mcp_venv（Python 3.11+）装。
+#
+# 主项目的 requirements.txt / Python 3.9 环境完全不受影响：fastmcp 和官方 mcp SDK
+# 从各自最新的历史版本起都要求 Python >= 3.10，装不进项目主环境，所以 MCP server
+# 单独用一个 venv 跑。见 README_MCP.md「环境准备」。
+#
+# 建 venv + 装依赖：
+#   py -3.11 -m venv mcp_venv
+#   mcp_venv\Scripts\python.exe -m pip install -r requirements_mcp.txt
+
+# --- MCP 协议框架 ---
+fastmcp
+
+# --- 检索：跟主项目的 kb_store.py 共用同一套逻辑，需要同样的库 ---
+langchain
+langchain-community
+langchain-huggingface
+faiss-cpu
+sentence-transformers
