@@ -202,6 +202,8 @@ class ChatResponse(BaseModel):
     suggestions: List[Any] = []
     verified: bool = False
     kb_id: Optional[str] = None
+    skill: Optional[str] = None            # 当前激活的 Skill id，未加载则 None
+    question_type: Optional[str] = None    # Skill 判定的细粒度问题类型（concept/comparison/...）
     error: Optional[str] = None
 
 

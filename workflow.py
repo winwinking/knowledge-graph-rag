@@ -1,3 +1,5 @@
+from skills import load_skill, get_active_skill
+load_skill("ai_tech_assistant")
 from langchain_openai import ChatOpenAI
 from langchain_community.vectorstores import FAISS
 from langgraph.graph import StateGraph, END
@@ -274,7 +276,9 @@ def retrieve_vector(state: State) -> State:
             return {"vector_results": "", "vector_chunks": []}
         search_query = _expand_query_for_vector(state["query"])
         logger.info("retrieve_vector 查询改写：%r -> %r", state["query"], search_query)
-        docs = vector_store.similarity_search(search_query, k=5)
+        skill = get_active_skill()
+        k = skill["get_k_value"](state["query"]) if skill else 5
+        docs = vector_store.similarity_search(search_query, k=k)
         print("【检索结果】", [(doc.page_content[:100], doc.metadata) for doc in docs], flush=True)
         chunks = [
             {"content": doc.page_content, "metadata": doc.metadata}
@@ -380,7 +384,33 @@ def _history_block(history) -> str:
     )
 
 
+_SUGGEST_INSTRUCTION = (
+    f'\n\n回答结束后另起一行，单独写一行 "{_SUGGEST_SEP}"，'
+    "再列出 2-3 个用户可能想继续追问的相关问题，\n"
+    "每个问题独占一行，不要编号、不要符号、不要多余文字。"
+)
+
+
 def _generate_prompt(state: State) -> str:
+    query = state["query"]
+    is_retry = state.get("verification_passed") is False
+    skill = get_active_skill()
+
+    if skill:
+        # Skill 已加载：context 把「最近对话」+ 向量/图谱检索结果拼成一段，
+        # 交给 skill 自己的 build_generate_prompt 组装（回答规范/术语/引用规则都在 Skill 里）。
+        context = (
+            f'{_history_block(state.get("history"))}'
+            f'【向量检索结果】\n{state.get("vector_results") or "无"}\n\n'
+            f'【图谱检索结果】\n{state.get("graph_results") or "无"}'
+        )
+        prompt = skill["build_generate_prompt"](query, context, is_retry)
+        # Skill 的 prompt 不知道「推荐追问」这个前端功能，追加同样的指令，
+        # 保证 _split_answer_suggestions 还能正常解析出 suggestions。
+        prompt += _SUGGEST_INSTRUCTION
+        return prompt
+
+    # Fallback：Skill 没加载，走原来手动拼 prompt 的逻辑
     prompt = f"""{_history_block(state.get("history"))}根据以下信息回答问题。
 
 【向量检索结果】
@@ -389,14 +419,12 @@ def _generate_prompt(state: State) -> str:
 【图谱检索结果】
 {state.get("graph_results") or "无"}
 
-问题：{state["query"]}
+问题：{query}
 
-请综合以上信息直接回答问题（如果信息不足请说明），不要加"回答如下"之类的前缀。
-回答结束后另起一行，单独写一行 "{_SUGGEST_SEP}"，再列出 2-3 个用户可能想继续追问的相关问题，
-每个问题独占一行，不要编号、不要符号、不要多余文字。"""
+请综合以上信息直接回答问题（如果信息不足请说明），不要加"回答如下"之类的前缀。{_SUGGEST_INSTRUCTION}"""
 
     # 上一轮验证没通过：收紧要求，并点名要避开的内容
-    if state.get("verification_passed") is False:
+    if is_retry:
         parts = [str(p).strip() for p in (state.get("hallucinated_parts") or []) if str(p).strip()]
         joined = "；".join(parts) if parts else "（未指明具体句子）"
         prompt += (
@@ -614,6 +642,7 @@ def run_query(query: str, kb_id: str = None, history: list = None) -> dict:
         "verified": bool(result.get("verification_passed")),
         "kb_id": kb_id,
     }
+    out.update(_skill_meta(query))
     logger.info(
         "run_query 完成 (%.1fs)：intent=%s，向量 %d，关系 %d，节点 %d，回答 %d 字，追问 %d，verified=%s",
         time.time() - t0, out["intent"], len(out["vector_results"]),
@@ -741,7 +770,18 @@ def run_query_stream(query: str, kb_id: str = None, history: list = None):
         time.time() - t0, state.get("intent"), len(answer), len(suggestions),
         verified, state["retry_count"],
     )
-    yield ("done", {"suggestions": suggestions, "verified": verified})
+    yield ("done", {"suggestions": suggestions, "verified": verified, **_skill_meta(query)})
+
+
+def _skill_meta(query: str) -> dict:
+    """当前激活 Skill 的 id + 该问题被判定的细粒度类型，没加载 Skill 时都是 None。"""
+    skill = get_active_skill()
+    if not skill:
+        return {"skill": None, "question_type": None}
+    return {
+        "skill": skill["config"]["id"],
+        "question_type": skill["detect_question_type"](query),
+    }
 
 
 def get_stats(kb_id: str = None) -> dict:
